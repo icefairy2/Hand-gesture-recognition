@@ -3,52 +3,44 @@
 #define NR_OF_CLASSES_BAYES 24
 #define IMG_HEIGHT 240
 #define IMG_WIDTH 320
-#define NR_BINS 5
+#define THRESHOLD 128
 
 using namespace cv;
 using namespace std;
 
 const int nrDimBayes = IMG_HEIGHT * IMG_WIDTH;
-const int gray_interval_length = 255 / NR_BINS;
-char letters[] = { 'A', 'B', 'C', 'D', 'E',
+char letters[] = {  'A', 'B', 'C', 'D', 'E',
                     'F', 'G', 'H', 'I', 'K',
                     'L', 'M', 'N', 'O', 'P',
                     'Q', 'R', 'S', 'T', 'U',
                     'V', 'W', 'X', 'Y' };
 
 double priors[NR_OF_CLASSES_BAYES];
-Mat likelihood(NR_OF_CLASSES_BAYES * NR_BINS, nrDimBayes, CV_64FC1, Scalar(0.0));
+Mat likelihood(NR_OF_CLASSES_BAYES, nrDimBayes, CV_64FC1, Scalar(0.0));
 
 char classifyBayes(Mat img) {
-    cout << "classifying" << endl;
     double class_logs[NR_OF_CLASSES_BAYES];
 
-    int c, i, j, k;
-    double probability = 0;
+    int c, i, j;
 
     for (c = 0; c < NR_OF_CLASSES_BAYES; c++) {
         class_logs[c] = log(priors[c]);
-        cout << letters[0] << " prior: " << class_logs[0] << endl;
         for (i = 0; i < IMG_HEIGHT; i++) {
             for (j = 0; j < IMG_WIDTH; j++) {
-                for (k = 0; k < NR_BINS; k++) {
-                    if (img.at<uchar>(i, j) > k*gray_interval_length &&
-                        img.at<uchar>(i, j) < (k + 1)*gray_interval_length) {
-                        probability = likelihood.at<double>(c*NR_BINS + k, i*IMG_WIDTH + j);
-                        break;
-                    }
+                if (img.at<uchar>(i, j) == 0) {
+                    class_logs[c] += log(1 - likelihood.at<double>(c, i*IMG_WIDTH + j));
                 }
-                class_logs[c] += log(probability);
+                else {
+                    class_logs[c] += log(likelihood.at<double>(c, i*IMG_WIDTH + j));
+                }
             }
         }
     }
 
     double max = class_logs[0];
     int maxc = 0;
-    cout << letters[0] << " probability: " << class_logs[0] << endl;
 
     for (c = 1; c < NR_OF_CLASSES_BAYES; c++) {
-        cout << letters[c] << " probability: " << class_logs[c] << endl;
         if (class_logs[c] > max) {
             max = class_logs[c];
             maxc = c;
@@ -124,11 +116,10 @@ void resizeImage(Mat& img, int height = 0, int width = 0) {
 }
 
 void trainNaiveBayes() {
-    int c, i, j, k, n, d;
+    int c, i, j, d;
     char fname[1000];
 
-    int classindex[NR_BINS];
-
+    int classindex = 0;
     int totalindex = 0;
     Mat img;
     Mat img_orig;
@@ -141,23 +132,16 @@ void trainNaiveBayes() {
     Vec3b white(255, 255, 255);
 
     cout << "TRAINING" << endl;
-    vector<String> filenames;
-    vector<Mat> images;
-    int count;
     c = 0;
     //Training algorithm
     for (c = 0; c < NR_OF_CLASSES_BAYES; c++) {
-        sprintf_s(fname, "hand-gestures\\train\\%c\\*.jpg", letters[c]);
-        glob(fname, filenames, false);
-        count = filenames.size(); //number of png files in images folder
+        classindex = 0;
         cout << letters[c] << endl;
+        while (1) {
+            sprintf_s(fname, "hand-gestures/train/%c/%03d.jpg", letters[c], classindex + 6);
+            img_orig = imread(fname, CV_LOAD_IMAGE_COLOR);
 
-        for (k = 0; k < NR_BINS; k++) {
-            classindex[k] = 0;
-        }
-
-        for (n = 0; n < count; n++) {
-            img_orig = imread(filenames[n], CV_LOAD_IMAGE_COLOR);
+            if (img_orig.cols == 0) break;
 
             pyrDown(img_orig, img_orig);
 
@@ -166,14 +150,14 @@ void trainNaiveBayes() {
                 if (img_orig.rows < img_orig.cols) {
                     resizeImage(img_orig, 240);  //resize fixed height
                     //crop width
-                    margin = (img_orig.cols - 320) / 2;
+                    margin = (img_orig.cols - 320) /2;
                     roi_rect = Rect(margin, 0, 320, img_orig.rows);
                     img = img_orig(roi_rect);
-                }
+                } 
                 else {
                     resizeImage(img_orig, 0, 320);
                     //crop height
-                    margin = (img_orig.rows - 240) / 2;
+                    margin = (img_orig.rows - 240) /2;
                     roi_rect = Rect(0, margin, img_orig.cols, 240);
                     img = img_orig(roi_rect);
                 }
@@ -183,7 +167,7 @@ void trainNaiveBayes() {
             }
 
             cvtColor(img, img_ycrcb, CV_BGR2YCrCb);
-            cvtColor(img, img_gray, CV_BGR2GRAY);
+            cvtColor(img, img_gray, CV_BGR2GRAY);         
 
             //Binarization (thresholding)
             for (i = 0; i < img.rows; i++) {
@@ -191,8 +175,13 @@ void trainNaiveBayes() {
                     if (!is_skin_color_rgb(img.at<Vec3b>(i, j))) {
                         img_gray.at<uchar>(i, j) = 0;
                     }
-                    if (!is_skin_color_crcb(img_ycrcb.at<Vec3b>(i, j))) {
-                        img_gray.at<uchar>(i, j) = 0;
+                    else {
+                        if (!is_skin_color_crcb(img_ycrcb.at<Vec3b>(i, j))) {
+                            img_gray.at<uchar>(i, j) = 0;
+                        }
+                        else {
+                            img_gray.at<uchar>(i, j) = 255;
+                        }
                     }
                 }
             }
@@ -200,35 +189,28 @@ void trainNaiveBayes() {
             //Compute likelihood sum
             for (i = 0; i < img_gray.rows; i++) {
                 for (j = 0; j < img_gray.cols; j++) {
-                    for (k = 0; k < NR_BINS; k++) {
-                        if (img_gray.at<uchar>(i, j) > k*gray_interval_length &&
-                            img_gray.at<uchar>(i, j) < (k + 1)*gray_interval_length) {
-                            likelihood.at<double>(c*NR_BINS + k, i*img_gray.cols + j)++;
-                            classindex[k]++;
-                        }
+                    if (img_gray.at<uchar>(i, j) == 255) {
+                        likelihood.at<double>(c, i*img_gray.cols + j)++;
                     }
                 }
             }
 
+            classindex++;
             totalindex++;
+        }
 
-            //Add total nr in prior probability
-            for (k = 0; k < NR_BINS; k++) {
-                priors[c] = (double)classindex[k];
-            }
+        //Add total nr in prior probability
+        priors[c] = (double)classindex;
 
-            //Divide likelihood sum with total number of class elements
-            for (d = 0; d < nrDimBayes; d++) {
-                for (k = 0; k < NR_BINS; k++) {
-                    if (likelihood.at<double>(c*NR_BINS + k, d) == 0) {
-                        likelihood.at<double>(c*NR_BINS + k, d) = 1e-5;
-                    }
-                    else {
-                        likelihood.at<double>(c*NR_BINS + k, d) /= (double)classindex[k];
-                    }
-                    //printf("%c %lf\n", letters[c], likelihood.at<double>(c, d));
-                }
+        //Divide likelihood sum with total number of class elements
+        for (d = 0; d < nrDimBayes; d++) {
+            if (likelihood.at<double>(c, d) == 0) {
+                likelihood.at<double>(c, d) = 1e-5;
             }
+            else {
+                likelihood.at<double>(c, d) /= (double)classindex;
+            }
+            //printf("%c %lf\n", letters[c], likelihood.at<double>(c, d));
         }
     }
 
@@ -246,6 +228,7 @@ void trainNaiveBayes() {
     //vector<String> filenames;
     //vector<Mat> images;
     //int count;
+    //string fn;
 
     ////Classification algorithm
     //for (c = 0; c < NR_OF_CLASSES_BAYES; c++) {
@@ -254,6 +237,8 @@ void trainNaiveBayes() {
     //    count = filenames.size(); //number of png files in images folder
     //    for (classindex = 0; classindex < count; classindex++) {
     //        img_orig = imread(filenames[classindex], CV_LOAD_IMAGE_COLOR);
+
+    //        if (img_orig.cols == 0) break;
 
     //        pyrDown(img_orig, img_orig);
 
