@@ -348,6 +348,8 @@ int main() {
     //Pressed character
     char c;
 
+    int i, j;
+
     //Main camera image capture
     VideoCapture capture(0); // open the deafult camera (i.e. the built in web cam)
     if (!capture.isOpened()) // openenig the video device failed
@@ -357,6 +359,7 @@ int main() {
     }
 
     Mat frame;
+    Mat gray_frame;
     Mat low_res_frame;
     char class_letter;
     string imgText = string("This is letter ");
@@ -393,7 +396,15 @@ int main() {
 
         //Get gesture every 50 frames to avoid lag
         if (counter % 50 == 0) {
-            class_letter = classifyBayes(bw_img);
+            cvtColor(low_res_frame, gray_frame, CV_BGR2HLS);
+            for (i = 0; i < bw_img.rows; i++) {
+                for (j = 0; j < bw_img.cols; j++) {
+                    if (bw_img.at<uchar>(i, j) == 0) {
+                        gray_frame.at<uchar>(i, j) = 0;
+                    }
+                }
+            }
+            class_letter = classifyBayes(gray_frame);
 
             imgText = string("This is letter ");
             imgText += class_letter;
