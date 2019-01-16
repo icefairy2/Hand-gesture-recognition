@@ -1,11 +1,54 @@
-#include <opencv2/opencv.hpp>
-#include <opencv2/core/core.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <iostream>
-#include <cmath>
+﻿#include "HandGestureRecognition.h"
 
-using namespace std;
+#define NR_OF_CLASSES_BAYES 24
+#define IMG_HEIGHT 240
+#define IMG_WIDTH 320
+#define THRESHOLD 128
+
 using namespace cv;
+using namespace std;
+
+const int nrDimBayes = IMG_HEIGHT * IMG_WIDTH;
+char letters[] = {  'A', 'B', 'C', 'D', 'E',
+                    'F', 'G', 'H', 'I', 'K',
+                    'L', 'M', 'N', 'O', 'P',
+                    'Q', 'R', 'S', 'T', 'U',
+                    'V', 'W', 'X', 'Y' };
+
+double priors[NR_OF_CLASSES_BAYES];
+Mat likelihood(NR_OF_CLASSES_BAYES, nrDimBayes, CV_64FC1, Scalar(0.0));
+
+char classifyBayes(Mat img) {
+    double class_logs[NR_OF_CLASSES_BAYES];
+
+    int c, i, j;
+
+    for (c = 0; c < NR_OF_CLASSES_BAYES; c++) {
+        class_logs[c] = log(priors[c]);
+        for (i = 0; i < IMG_HEIGHT; i++) {
+            for (j = 0; j < IMG_WIDTH; j++) {
+                if (img.at<uchar>(i, j) == 0) {
+                    class_logs[c] += log(1 - likelihood.at<double>(c, i*IMG_WIDTH + j));
+                }
+                else {
+                    class_logs[c] += log(likelihood.at<double>(c, i*IMG_WIDTH + j));
+                }
+            }
+        }
+    }
+
+    double max = class_logs[0];
+    int maxc = 0;
+
+    for (c = 1; c < NR_OF_CLASSES_BAYES; c++) {
+        if (class_logs[c] > max) {
+            max = class_logs[c];
+            maxc = c;
+        }
+    }
+
+    return letters[maxc];
+}
 
 bool is_skin_color_rgb(Vec3b pixel) {
     int B = pixel[0];
@@ -37,8 +80,8 @@ bool is_skin_color_rgb(Vec3b pixel) {
 }
 
 bool is_skin_color_crcb(Vec3b pixel) {
-    int Cr = pixel[1];
-    int Cb = pixel[2];
+    float Cr = pixel[1];
+    float Cb = pixel[2];
 
     bool is_skin_color = true;
 
@@ -53,143 +96,225 @@ bool is_skin_color_crcb(Vec3b pixel) {
     return is_skin_color;
 }
 
-//Mat fit_gaussian_model(Mat image) {
-//    int i, j;
-//    Mat image_ycrcb;
-//    Mat gray = Mat::zeros(image.rows, image.cols, CV_8UC1);
-//    Vec3b black(0, 0, 0);
-//
-//    int Cri, Cbi;
-//    int N = 0;
-//    Mat xi, mean;
-//    xi = Mat(1, 2, CV_64FC1);
-//    double Cr = 0, Cb = 0;
-//    double variance = 0;
-//    double P;
-//
-//    cvtColor(image, image_ycrcb, CV_BGR2YCrCb);
-//
-//    for (i = 0; i < image.rows; i++) {
-//        for (j = 0; j < image.cols; j++) {
-//            if (image.at<Vec3b>(i, j) != black) {
-//                Cri = image_ycrcb.at<Vec3b>(i, j)[1];
-//                Cbi = image_ycrcb.at<Vec3b>(i, j)[2];
-//                Cr += Cri;
-//                Cb += Cbi;
-//                N++;
-//            }
-//        }
-//    }
-//
-//    Cr /= (double)N;
-//    Cb /= (double)N;
-//    mean = Mat(1, 2, CV_64FC1);
-//    mean.at<double>(0) = Cb;
-//    mean.at<double>(1) = Cr;
-//    Mat temp;
-//
-//    for (i = 0; i < image.rows; i++) {
-//        for (j = 0; j < image.cols; j++) {
-//            if (image.at<Vec3b>(i, j) != black) {
-//                Cri = image_ycrcb.at<Vec3b>(i, j)[1];
-//                Cbi = image_ycrcb.at<Vec3b>(i, j)[2];
-//                xi.at<double>(0) = Cbi;
-//                xi.at<double>(1) = Cri;
-//                temp = (xi - mean)*(xi - mean).t();
-//                variance += temp.at<double>(0);
-//            }
-//        }
-//    }
-//
-//    variance /= (double)(N - 1);
-//
-//    for (i = 0; i < image.rows; i++) {
-//        for (j = 0; j < image.cols; j++) {
-//            if (image.at<Vec3b>(i, j) != black) {
-//                Cri = image_ycrcb.at<Vec3b>(i, j)[1];
-//                Cbi = image_ycrcb.at<Vec3b>(i, j)[2];
-//                xi.at<double>(0) = Cbi;
-//                xi.at<double>(1) = Cri;
-//                temp = (xi - mean)/variance*(xi - mean).t();
-//                P = 1.0 / (2 * CV_PI*sqrt(abs(variance))) * exp(-0.5* temp.at<double>(0));
-//            }
-//        }
-//    }
-//
-//    return gray;
-//}
+void resizeImage(Mat& img, int height = 0, int width = 0) {
+    int h = img.rows;
+    int w = img.cols;
+    float r;
 
-int main()
-{
-    char c;
+    if (width == 0) {
+        r = height / (float)h;
+        w = (int)w*r;
+        h = height;
+    }
+    else {
+        r = width / (float)w;
+        h = (int)h*r;
+        w = width;
+    }
 
-    int i, j;
-    Mat frame;
-    Mat res_frame;
-    Mat res_ycrcb;
+    resize(img, img, Size(w, h));
+}
+
+void trainNaiveBayes() {
+    int c, i, j, d;
+    char fname[1000];
+
+    int classindex = 0;
+    int totalindex = 0;
+    Mat img;
+    Mat img_orig;
+    Mat img_ycrcb;
+    Mat img_gray;
+    int margin;
+    Rect roi_rect;
 
     Vec3b black(0, 0, 0);
+    Vec3b white(255, 255, 255);
 
-    VideoCapture cap(0); // open the deafult camera (i.e. the built in web cam)
-    if (!cap.isOpened()) // openenig the video device failed
-    {
-        printf("Cannot open video capture device.\n");
-        return 0;
-    }
+    cout << "TRAINING" << endl;
+    c = 0;
+    //Training algorithm
+    for (c = 0; c < NR_OF_CLASSES_BAYES; c++) {
+        classindex = 0;
+        cout << letters[c] << endl;
+        while (1) {
+            sprintf_s(fname, "hand-gestures/train/%c/%03d.jpg", letters[c], classindex + 6);
+            img_orig = imread(fname, CV_LOAD_IMAGE_COLOR);
 
-    //cap.set(CV_CAP_PROP_FRAME_WIDTH, 640);
-    //cap.set(CV_CAP_PROP_FRAME_HEIGHT, 480);
+            if (img_orig.cols == 0) break;
 
-    // Display window
-    const char* WIN_SRC = "Src"; //window for the source frame
-    namedWindow(WIN_SRC, CV_WINDOW_AUTOSIZE);
-    cvMoveWindow(WIN_SRC, 0, 0);
+            pyrDown(img_orig, img_orig);
 
-    // Result window
-    const char* WIN_RES = "Res"; //window for the result frame
-    namedWindow(WIN_RES, CV_WINDOW_AUTOSIZE);
-    cvMoveWindow(WIN_RES, 0, 0);
-
-    while(true)
-    {
-        cap >> frame; // get a new frame from camera
-        if (frame.empty())
-        {
-            printf("End of the video file\n");
-            break;
-        }
-
-        imshow(WIN_SRC, frame);
-
-        //res_frame = Mat(frame.size(), CV_8UC3);
-        frame.copyTo(res_frame);
-
-        cvtColor(res_frame, res_ycrcb, CV_BGR2YCrCb);
-
-        //simple threshold model
-        for (i = 0; i < res_frame.rows; i++) {
-            for (j = 0; j < res_frame.cols; j++) {
-                if (!is_skin_color_rgb(res_frame.at<Vec3b>(i, j))) {
-                    res_frame.at<Vec3b>(i, j) = black;
-                }
-                if (!is_skin_color_crcb(res_ycrcb.at<Vec3b>(i, j))) {
-                    res_frame.at<Vec3b>(i, j) = black;
+            //resize bigger images
+            if (img_orig.rows != 240 || img_orig.cols != 320) {
+                if (img_orig.rows < img_orig.cols) {
+                    resizeImage(img_orig, 240);  //resize fixed height
+                    //crop width
+                    margin = (img_orig.cols - 320) /2;
+                    roi_rect = Rect(margin, 0, 320, img_orig.rows);
+                    img = img_orig(roi_rect);
+                } 
+                else {
+                    resizeImage(img_orig, 0, 320);
+                    //crop height
+                    margin = (img_orig.rows - 240) /2;
+                    roi_rect = Rect(0, margin, img_orig.cols, 240);
+                    img = img_orig(roi_rect);
                 }
             }
+            else {
+                img_orig.copyTo(img);
+            }
+
+            cvtColor(img, img_ycrcb, CV_BGR2YCrCb);
+            cvtColor(img, img_gray, CV_BGR2GRAY);         
+
+            //Binarization (thresholding)
+            for (i = 0; i < img.rows; i++) {
+                for (j = 0; j < img.cols; j++) {
+                    if (!is_skin_color_rgb(img.at<Vec3b>(i, j))) {
+                        img_gray.at<uchar>(i, j) = 0;
+                    }
+                    else {
+                        if (!is_skin_color_crcb(img_ycrcb.at<Vec3b>(i, j))) {
+                            img_gray.at<uchar>(i, j) = 0;
+                        }
+                        else {
+                            img_gray.at<uchar>(i, j) = 255;
+                        }
+                    }
+                }
+            }
+
+            //Compute likelihood sum
+            for (i = 0; i < img_gray.rows; i++) {
+                for (j = 0; j < img_gray.cols; j++) {
+                    if (img_gray.at<uchar>(i, j) == 255) {
+                        likelihood.at<double>(c, i*img_gray.cols + j)++;
+                    }
+                }
+            }
+
+            classindex++;
+            totalindex++;
         }
 
-        //gray = fit_gaussian_model(res);
+        //Add total nr in prior probability
+        priors[c] = (double)classindex;
 
-        imshow(WIN_RES, res_frame);
-
-        c = cvWaitKey(10);  // waits a key press to advance to the next frame
-        if (c == 27) {
-            // press ESC to exit
-            printf("ESC pressed - capture finished");
-            break;  //ESC pressed
+        //Divide likelihood sum with total number of class elements
+        for (d = 0; d < nrDimBayes; d++) {
+            if (likelihood.at<double>(c, d) == 0) {
+                likelihood.at<double>(c, d) = 1e-5;
+            }
+            else {
+                likelihood.at<double>(c, d) /= (double)classindex;
+            }
+            //printf("%c %lf\n", letters[c], likelihood.at<double>(c, d));
         }
     }
 
-    getchar();
-    return 0;
+    //Divide priors with total number of elements
+    for (c = 0; c < NR_OF_CLASSES_BAYES; c++) {
+        priors[c] /= (double)totalindex;
+        //printf("%lf\n", priors[c]);
+    }
+
+    //totalindex = 0;
+    //int classified = 0;
+    //Mat confusion_mat(NR_OF_CLASSES_BAYES, NR_OF_CLASSES_BAYES, CV_32SC1, Scalar(0));
+
+    //cout << "CLASSIFYING" << endl;
+    //vector<String> filenames;
+    //vector<Mat> images;
+    //int count;
+    //string fn;
+
+    ////Classification algorithm
+    //for (c = 0; c < NR_OF_CLASSES_BAYES; c++) {
+    //    sprintf_s(fname, "hand-gestures\\test\\%c\\*.png", letters[c]);
+    //    glob(fname, filenames, false);
+    //    count = filenames.size(); //number of png files in images folder
+    //    for (classindex = 0; classindex < count; classindex++) {
+    //        img_orig = imread(filenames[classindex], CV_LOAD_IMAGE_COLOR);
+
+    //        if (img_orig.cols == 0) break;
+
+    //        pyrDown(img_orig, img_orig);
+
+    //        //resize bigger images
+    //        if (img_orig.rows > 240 || img_orig.cols > 320) {
+    //            if (img_orig.rows < img_orig.cols) {
+    //                resizeImage(img_orig, 240);  //resize fixed height
+    //                                             //crop width
+    //                margin = (img_orig.cols - 320) / 2;
+    //                roi_rect = Rect(margin, 0, 320, img_orig.rows);
+    //                img = img_orig(roi_rect);
+    //            }
+    //            else {
+    //                resizeImage(img_orig, 0, 320);
+    //                //crop height
+    //                margin = (img_orig.rows - 240) / 2;
+    //                roi_rect = Rect(0, margin, img_orig.cols, 240);
+    //                img = img_orig(roi_rect);
+    //            }
+    //        }
+    //        else {
+    //            resizeImage(img_orig, 240, 320);
+    //            img_orig.copyTo(img);
+    //        }
+
+    //        cv::cvtColor(img, img_ycrcb, CV_BGR2YCrCb);
+    //        cv::cvtColor(img, img_gray, CV_BGR2GRAY);
+
+    //        //Binarization (thresholding)
+    //        for (i = 0; i < img.rows; i++) {
+    //            for (j = 0; j < img.cols; j++) {
+    //                if (!is_skin_color_rgb(img.at<Vec3b>(i, j))) {
+    //                    img_gray.at<uchar>(i, j) = 0;
+    //                }
+    //                else {
+    //                    if (!is_skin_color_crcb(img_ycrcb.at<Vec3b>(i, j))) {
+    //                        img_gray.at<uchar>(i, j) = 0;
+    //                    }
+    //                    else {
+    //                        img_gray.at<uchar>(i, j) = 255;
+    //                    }
+    //                }
+    //            }
+    //        }
+
+    //        classified = classifyBayes(img, priors, likelihood);
+
+    //        //printf("Predicted class: %d\nActual class: %d\n\n", classified, c);
+    //        confusion_mat.at<int>(c, classified)++;
+
+    //        classindex++;
+    //        totalindex++;
+    //    }
+    //}
+
+    //for (i = 0; i < NR_OF_CLASSES_BAYES; i++) {
+    //    for (int j = 0; j < NR_OF_CLASSES_BAYES; j++) {
+    //        printf("%5d ", confusion_mat.at<int>(i, j));
+    //    }
+    //    printf("\n");
+    //}
+
+    //int sum_main_diag = 0;
+    //int sum_all_elem = 0;
+    //for (i = 0; i < NR_OF_CLASSES_BAYES; i++) {
+    //    for (int j = 0; j < NR_OF_CLASSES_BAYES; j++) {
+    //        sum_all_elem += confusion_mat.at<int>(i, j);
+    //        if (i == j) {
+    //            sum_main_diag += confusion_mat.at<int>(i, j);
+    //        }
+    //    }
+    //}
+
+    //double ACC = (double)sum_main_diag / (double)sum_all_elem;
+    //printf("ACC: %lf\n", ACC);
+
+    //getchar();
+    //getchar();
 }

@@ -127,6 +127,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="HandGestureRecognition.cpp" />
+    <ClCompile Include="Main.cpp" />
+    <ClCompile Include="Roi.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="HandGestureRecognition.h" />
+    <ClInclude Include="Main.h" />
+    <ClInclude Include="Roi.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

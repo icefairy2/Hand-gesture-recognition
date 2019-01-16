@@ -18,5 +18,22 @@
     <ClCompile Include="HandGestureRecognition.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Roi.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="HandGestureRecognition.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Roi.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Main.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
